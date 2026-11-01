@@ -1,23 +1,36 @@
 import hashlib
 import json
+from pathlib import Path
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import config
 from helpers import build_test_counts, build_category_counts, generate_ai_insights, get_report_date, style_excel
 from data_persistence import save_processed_data, load_processed_data, delete_processed_data, get_saved_dates, load_daily_report_series, compute_cumulative
+from pricing import PriceListError, build_financial_summary, format_inr, read_price_list
 
 st.set_page_config(page_title="Pathology Report", page_icon="🧪", layout="wide")
 
-theme_mode = st.sidebar.radio(
-    "Appearance",
-    options=["Day", "Night"],
-    horizontal=True,
-    key="theme_mode"
-)
+price_list = st.session_state.get("price_list")
+price_list_source = st.session_state.get("price_list_source")
+local_price_list_path = Path(__file__).resolve().with_name("price list.xls")
+if price_list is None and local_price_list_path.is_file():
+    try:
+        price_list = read_price_list(
+            local_price_list_path.read_bytes(),
+            local_price_list_path.name,
+        )
+        price_list_source = local_price_list_path.name
+        st.session_state["price_list"] = price_list
+        st.session_state["price_list_source"] = price_list_source
+    except PriceListError as exc:
+        st.error(f"Could not load the local price list: {exc}")
+
+night_mode = st.session_state.get("night_mode", False)
+theme_mode = "Night" if night_mode else "Day"
 
 # ============================================================================
 # APP STYLING
@@ -687,6 +700,188 @@ if theme_mode == "Night":
     </style>
     """, unsafe_allow_html=True)
 
+is_night_mode = theme_mode == "Night"
+app_text = "#e5edf8" if is_night_mode else "#172033"
+muted_text = "#a9b8cb" if is_night_mode else "#52627a"
+surface = "#182234" if is_night_mode else "#ffffff"
+surface_alt = "#111827" if is_night_mode else "#f8fafc"
+border = "#3b4a61" if is_night_mode else "#cbd5e1"
+button_background = "#253248" if is_night_mode else "#eff6ff"
+button_hover = "#334765" if is_night_mode else "#dbeafe"
+button_text = "#dbeafe" if is_night_mode else "#1e3a8a"
+header_text = "#e0f2fe" if is_night_mode else "#172554"
+
+st.markdown(f"""
+<style>
+[data-testid="stHeader"] {{
+    background: {"#0b1220" if is_night_mode else "#f5f8ff"} !important;
+    box-shadow: none !important;
+}}
+
+[data-testid="stSidebar"],
+[data-testid="stSidebarCollapsedControl"] {{
+    display: none !important;
+}}
+
+[data-testid="stAppViewContainer"],
+[data-testid="stAppViewContainer"] [data-testid="stMarkdownContainer"] *,
+[data-testid="stCaptionContainer"],
+[data-testid="stExpander"] summary,
+[data-testid="stAlert"] p,
+[data-testid="stAlert"] span {{
+    color: {app_text} !important;
+}}
+
+[data-testid="stSidebar"] {{
+    color: {app_text} !important;
+}}
+
+.header-title {{
+    background: {surface} !important;
+    border: 1px solid {border} !important;
+}}
+
+.header-title h1 {{
+    color: {header_text} !important;
+    background: none !important;
+    -webkit-text-fill-color: {header_text} !important;
+}}
+
+.header-title p,
+[data-testid="stMetricLabel"] {{
+    color: {muted_text} !important;
+}}
+
+[data-testid="stMetric"],
+.glossy-card,
+[data-testid="stDataFrame"],
+[data-testid="stExpander"] {{
+    color: {app_text} !important;
+    background-color: {surface} !important;
+    border-color: {border} !important;
+}}
+
+.stButton > button,
+[data-testid="stButton"] button,
+[data-testid="stPopover"] button {{
+    color: {button_text} !important;
+    background: {button_background} !important;
+    border: 1px solid {border} !important;
+}}
+
+.stButton > button:hover,
+.stButton > button:focus,
+.stButton > button:active,
+[data-testid="stButton"] button:hover,
+[data-testid="stButton"] button:focus,
+[data-testid="stButton"] button:active,
+[data-testid="stPopover"] button:hover,
+[data-testid="stPopover"] button:focus {{
+    color: {app_text} !important;
+    background: {button_hover} !important;
+}}
+
+.stButton > button *,
+[data-testid="stButton"] button *,
+[data-testid="stPopover"] button * {{
+    color: inherit !important;
+}}
+
+[data-testid="stDownloadButton"] > button {{
+    color: #ffffff !important;
+    background: linear-gradient(100deg, #2563eb, #4f46e5) !important;
+}}
+
+[data-testid="stDownloadButton"] > button * {{
+    color: inherit !important;
+}}
+
+[data-testid="stSelectbox"] [data-baseweb="select"] > div,
+[data-testid="stDateInput"] [data-baseweb="input"],
+[data-testid="stDateInput"] input {{
+    color: {app_text} !important;
+    background: {surface_alt} !important;
+    border-color: {border} !important;
+}}
+
+[data-testid="stButtonGroup"] button[data-variant="segmented_control"] {{
+    color: {button_text} !important;
+    background: {button_background} !important;
+    border-color: {border} !important;
+}}
+
+[data-testid="stButtonGroup"] button[data-variant="segmented_control"][aria-checked="true"] {{
+    color: {app_text} !important;
+    background: {button_hover} !important;
+    border-color: {button_text} !important;
+}}
+
+.financial-insight-grid {{
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin: 14px 0;
+}}
+
+.financial-insight-card {{
+    min-width: 0;
+    padding: 14px 16px;
+    border: 1px solid {border};
+    border-radius: 12px;
+    background: {surface_alt};
+}}
+
+.financial-insight-label {{
+    margin-bottom: 6px;
+    color: {muted_text} !important;
+    font-size: .82rem;
+    font-weight: 600;
+}}
+
+.financial-insight-value {{
+    color: {app_text} !important;
+    font-size: clamp(1.05rem, 1.6vw, 1.45rem);
+    font-weight: 750;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}}
+
+[data-testid="stToggle"] {{
+    justify-content: flex-end;
+}}
+
+[data-testid="stToggle"] label {{
+    gap: 0;
+}}
+
+.st-key-night_mode [data-testid="stCheckbox"] label:has(input[role="switch"]) > div:first-of-type {{
+    width: 36px !important;
+    min-width: 36px !important;
+    height: 20px !important;
+    border: 1px solid {border} !important;
+    border-radius: 999px !important;
+    background: {"#475569" if is_night_mode else "#cbd5e1"} !important;
+}}
+
+.st-key-night_mode [data-testid="stCheckbox"] label:has(input[role="switch"]:checked) > div:first-of-type {{
+    background: {"#38bdf8" if is_night_mode else "#2563eb"} !important;
+}}
+
+.st-key-night_mode [data-testid="stCheckbox"] label:has(input[role="switch"]) > div:first-of-type > div {{
+    width: 14px !important;
+    height: 14px !important;
+    border-radius: 50% !important;
+    background: #ffffff !important;
+}}
+
+@media (max-width: 700px) {{
+    .financial-insight-grid {{
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }}
+}}
+</style>
+""", unsafe_allow_html=True)
+
 
 def render_ai_insights(summary, key):
     summary_id = hashlib.sha256(
@@ -701,8 +896,8 @@ def render_ai_insights(summary, key):
         )
     elif not config.is_gemini_configured():
         st.caption(
-            "Set GEMINI_API_KEY in the environment used to start Streamlit to enable AI insights. "
-            "Only aggregate counts are sent."
+            'Set GEMINI_API_KEY in the environment or add GEMINI_API_KEY = "your-key" '
+            "to Streamlit Cloud app secrets to enable AI insights. Only aggregate counts are sent."
         )
     else:
         st.caption("AI receives aggregate counts only; patient-level rows are not sent.")
@@ -726,6 +921,15 @@ st.markdown("""
     <p>Aarogyadham Hospital - Professional Report Management System</p>
 </div>
 """, unsafe_allow_html=True)
+
+theme_columns = st.columns([20, 1])
+with theme_columns[1]:
+    st.toggle(
+        "Night mode",
+        key="night_mode",
+        help="Switch between day and night appearance",
+        label_visibility="collapsed",
+    )
 
 # Initialize session state for tabs
 if 'active_tab' not in st.session_state:
@@ -861,6 +1065,16 @@ with tab1:
 
             daily_test_data = test_counts[test_counts["TestName"] != "Grand Total"]
             daily_category_data = cat_counts[cat_counts["Category"] != "Grand Total"]
+            daily_financial_table = None
+            daily_financial_totals = None
+            if price_list is not None:
+                try:
+                    daily_financial_table, daily_financial_totals = build_financial_summary(
+                        [df], price_list
+                    )
+                except ValueError as exc:
+                    st.warning(f"Could not calculate daily charges: {exc}")
+
             daily_ai_summary = {
                 "report_date": report_date_str,
                 "total_tests": int(test_counts.iloc[-1]["Total"]),
@@ -872,6 +1086,14 @@ with tab1:
                     min(8, len(daily_test_data)), "Total"
                 )[["TestName", "IPD", "OPD", "Total"]].to_dict(orient="records")
             }
+            if daily_financial_totals is not None and daily_financial_table is not None:
+                daily_ai_summary["estimated_financials"] = daily_financial_totals
+                top_daily_prices = daily_financial_table.head(8)
+                daily_ai_summary["frequently_used_test_prices"] = (
+                    top_daily_prices.astype(object)
+                    .where(pd.notna(top_daily_prices), None)
+                    .to_dict(orient="records")
+                )
             with st.expander("✨ AI workload insights", expanded=False):
                 render_ai_insights(daily_ai_summary, "daily")
             
@@ -966,7 +1188,14 @@ with tab2:
 # ============================================================================
 with tab3:
     st.markdown("### 📈 Lab activity at a glance")
-    st.caption("Select a reporting period to explore workload trends and category mix.")
+    st.caption("Explore workload, listed-rate charge estimates, and category mix for a selected period.")
+    if price_list is not None:
+        st.caption(f"Listed rates loaded from {price_list_source}.")
+    else:
+        st.warning(
+            "The laboratory price list is not available. Add `price list.xls` beside "
+            "`excel_processor.py` in the deployed app."
+        )
 
     saved_dates = get_saved_dates()
     if saved_dates:
@@ -976,18 +1205,38 @@ with tab3:
         ]
         first_date = saved_date_values[0][1]
         last_date = saved_date_values[-1][1]
-        selected_range = st.date_input(
-            "Report date range",
-            value=(first_date, last_date),
-            min_value=first_date,
-            max_value=last_date,
-            key="analytics_date_range"
+        range_mode = st.segmented_control(
+            "Report period",
+            options=["All reports", "Today", "This week", "This month", "Custom range"],
+            default="All reports",
+            key="analytics_range_mode",
+            selection_mode="single",
         )
-        if isinstance(selected_range, tuple):
-            range_start = selected_range[0]
-            range_end = selected_range[-1]
+        today = datetime.today().date()
+        if range_mode == "Today":
+            range_start = range_end = today
+        elif range_mode == "This week":
+            range_start = today - timedelta(days=today.weekday())
+            range_end = range_start + timedelta(days=6)
+        elif range_mode == "This month":
+            range_start = today.replace(day=1)
+            range_end = today
+        elif range_mode == "Custom range":
+            selected_range = st.date_input(
+                "Choose a manual report date range",
+                value=(first_date, last_date),
+                min_value=first_date,
+                max_value=last_date,
+                key="analytics_date_range",
+            )
+            if isinstance(selected_range, tuple):
+                range_start = selected_range[0]
+                range_end = selected_range[-1]
+            else:
+                range_start = range_end = selected_range
         else:
-            range_start = range_end = selected_range
+            range_start = first_date
+            range_end = last_date
 
         selected_dates = [
             value for value, parsed in saved_date_values
@@ -1022,6 +1271,68 @@ with tab3:
             with m4:
                 st.metric("📅 Report days", report_days)
 
+            financial_table = None
+            financial_totals = None
+            if price_list is not None:
+                report_frames = []
+                for date_str in selected_dates:
+                    report_frame, _, _ = load_processed_data(date_str)
+                    if report_frame is not None:
+                        report_frames.append(report_frame)
+                try:
+                    financial_table, financial_totals = build_financial_summary(
+                        report_frames, price_list
+                    )
+                except ValueError as exc:
+                    st.warning(f"Could not calculate financial analytics: {exc}")
+
+            if financial_table is not None and financial_totals is not None:
+                with st.container(border=True):
+                    st.markdown("#### 💰 Financial insight")
+                    st.caption(
+                        "Estimated charges at the listed IPD/OPD rates, before discounts or adjustments. "
+                        "These are not actual collections or realized income. Tests are ordered by "
+                        "frequency, with each test’s individual prices and estimated charges shown below."
+                    )
+                    priced_test_count = financial_totals["tests_with_prices"]
+                    total_priced_test_count = (
+                        priced_test_count + financial_totals["tests_without_prices"]
+                    )
+                    st.markdown(
+                        f"""
+                        <div class="financial-insight-grid">
+                          <div class="financial-insight-card">
+                            <div class="financial-insight-label">Total listed-rate estimate</div>
+                            <div class="financial-insight-value">{format_inr(financial_totals['estimated_charges'])}</div>
+                          </div>
+                          <div class="financial-insight-card">
+                            <div class="financial-insight-label">IPD estimate</div>
+                            <div class="financial-insight-value">{format_inr(financial_totals['ipd_estimated_charges'])}</div>
+                          </div>
+                          <div class="financial-insight-card">
+                            <div class="financial-insight-label">OPD estimate</div>
+                            <div class="financial-insight-value">{format_inr(financial_totals['opd_estimated_charges'])}</div>
+                          </div>
+                          <div class="financial-insight-card">
+                            <div class="financial-insight-label">Tests with a listed rate</div>
+                            <div class="financial-insight-value">{financial_totals['price_coverage_percent']:.1f}%</div>
+                            <div class="financial-insight-label">{priced_test_count:,} / {total_priced_test_count:,} tests</div>
+                          </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    financial_display = financial_table.head(15).copy()
+                    for column in ("IPD price", "OPD price", "Estimated charges"):
+                        financial_display[column] = financial_display[column].map(
+                            lambda value: format_inr(value) if pd.notna(value) else "—"
+                        )
+                    st.dataframe(
+                        financial_display,
+                        width="stretch",
+                        hide_index=True,
+                    )
+
             if top_test is not None and top_category is not None:
                 st.info(
                     f"💡 **At a glance:** {top_test['TestName']} is the most frequent test "
@@ -1052,6 +1363,14 @@ with tab3:
                         ["Category", "Count"]
                     ].to_dict(orient="records")
                 }
+                if financial_totals is not None and financial_table is not None:
+                    top_priced_tests = financial_table.head(10)
+                    analytics_ai_summary["estimated_financials"] = financial_totals
+                    analytics_ai_summary["frequently_used_test_prices"] = (
+                        top_priced_tests.astype(object)
+                        .where(pd.notna(top_priced_tests), None)
+                        .to_dict(orient="records")
+                    )
                 render_ai_insights(analytics_ai_summary, "analytics")
 
             st.markdown("#### 📆 Daily test volume")
@@ -1139,6 +1458,10 @@ with tab3:
             with tab_cat:
                 st.dataframe(cum_cc, width="stretch", hide_index=True)
         else:
-            st.info("No saved reports fall within this date range.")
+            st.info(
+                f"No saved reports fall within {range_start.strftime('%d %b %Y')} – "
+                f"{range_end.strftime('%d %b %Y')}. Available saved reports range from "
+                f"{first_date.strftime('%d %b %Y')} to {last_date.strftime('%d %b %Y')}."
+            )
     else:
         st.info("📊 No saved reports yet. Upload a daily workbook to start building your analytics.")

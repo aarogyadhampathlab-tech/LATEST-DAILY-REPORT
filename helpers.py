@@ -1,5 +1,4 @@
 import json
-import os
 import pandas as pd
 from io import BytesIO
 from openpyxl import load_workbook
@@ -8,7 +7,7 @@ import config
 
 GEMINI_AVAILABLE = config.GEMINI_AVAILABLE
 CATEGORY_RULES = config.CATEGORY_RULES
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.8-flash"
 
 
 def normalize_bookingmode(x):
@@ -32,7 +31,7 @@ def get_report_date(df):
 
 
 def ai_batch_categorize(unknown_tests):
-    if not unknown_tests or not GEMINI_AVAILABLE or not os.getenv("GEMINI_API_KEY"):
+    if not unknown_tests or not config.is_gemini_configured():
         return {}
     tests_text = "\n".join([f"- Test: {t}, Subgroup: {s}" for t, s in unknown_tests])
     prompt = f"Categories: Biochemistry, Clinical, Hematology, Immunology. Assign each test. Return CSV: TestName,Subgroup,Category\n{tests_text}"
@@ -63,7 +62,9 @@ def generate_ai_insights(summary):
             config=config.GenerateContentConfig(
                 system_instruction=(
                     "You are an operational reporting assistant for a pathology laboratory. "
-                    "Describe workload patterns and changes from the supplied aggregate counts. "
+                    "Describe workload patterns and changes from the supplied aggregate counts, "
+                    "and summarize any supplied financial estimates. Treat listed-rate charges as "
+                    "estimates before discounts or adjustments, not collected or realized revenue. "
                     "Do not infer diagnoses, clinical outcomes, or causes. Use concise bullets and "
                     "mention when a comparison is limited by the available dates."
                 ),
@@ -72,8 +73,13 @@ def generate_ai_insights(summary):
             ),
         )
     except config.GeminiAPIError as exc:
+        status = f"{exc.code} {exc.status}" if exc.status else str(exc.code)
+        detail = exc.message or "No additional error message was provided."
+        api_key = config.get_gemini_api_key()
+        if api_key:
+            detail = detail.replace(api_key, "[redacted]")
         raise RuntimeError(
-            f"Gemini could not generate insights ({type(exc).__name__}). Check API access and try again."
+            f"Gemini request failed ({status}): {detail}"
         ) from exc
 
     insight_text = response.text

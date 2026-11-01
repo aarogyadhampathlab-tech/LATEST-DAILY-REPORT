@@ -17,15 +17,32 @@ def get_gemini_client():
     if genai is None:
         raise RuntimeError("Install the Gemini dependency from requirements.txt to enable AI features.")
 
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = get_gemini_api_key()
     if not api_key:
-        raise RuntimeError("Set GEMINI_API_KEY in the environment used to start Streamlit.")
+        raise RuntimeError(
+            "Set GEMINI_API_KEY in the environment used to start Streamlit, "
+            'or add GEMINI_API_KEY = "your-key" to Streamlit Cloud app secrets.'
+        )
 
     return genai.Client(api_key=api_key)
 
 
+def get_gemini_api_key():
+    api_key = os.getenv("GEMINI_API_KEY")
+    if api_key:
+        return api_key.strip()
+
+    try:
+        import streamlit as st
+        api_key = st.secrets.get("GEMINI_API_KEY")
+    except FileNotFoundError:
+        return None
+
+    return api_key.strip() if isinstance(api_key, str) and api_key.strip() else None
+
+
 def is_gemini_configured():
-    return GEMINI_AVAILABLE and bool(os.getenv("GEMINI_API_KEY"))
+    return GEMINI_AVAILABLE and bool(get_gemini_api_key())
 
 
 def default_dates():
