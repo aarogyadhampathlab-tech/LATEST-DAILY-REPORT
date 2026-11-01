@@ -694,14 +694,14 @@ def render_ai_insights(summary, key):
     ).hexdigest()[:16]
     result_key = f"ai_insights_{key}_{summary_id}"
 
-    if not config.OPENAI_AVAILABLE:
+    if not config.GEMINI_AVAILABLE:
         st.caption(
-            "Install the OpenAI dependency from requirements.txt to enable AI insights. "
+            "Install the Gemini dependency from requirements.txt to enable AI insights. "
             "Only aggregate counts are sent."
         )
-    elif not config.is_openai_configured():
+    elif not config.is_gemini_configured():
         st.caption(
-            "Set OPENAI_API_KEY in the environment used to start Streamlit to enable AI insights. "
+            "Set GEMINI_API_KEY in the environment used to start Streamlit to enable AI insights. "
             "Only aggregate counts are sent."
         )
     else:

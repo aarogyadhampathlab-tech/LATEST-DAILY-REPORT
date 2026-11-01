@@ -6,8 +6,9 @@ from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 import config
 
-OPENAI_AVAILABLE = config.OPENAI_AVAILABLE
+GEMINI_AVAILABLE = config.GEMINI_AVAILABLE
 CATEGORY_RULES = config.CATEGORY_RULES
+GEMINI_MODEL = "gemini-2.5-flash"
 
 
 def normalize_bookingmode(x):
@@ -31,59 +32,53 @@ def get_report_date(df):
 
 
 def ai_batch_categorize(unknown_tests):
-    if not unknown_tests or not OPENAI_AVAILABLE or not os.getenv("OPENAI_API_KEY"):
+    if not unknown_tests or not GEMINI_AVAILABLE or not os.getenv("GEMINI_API_KEY"):
         return {}
     tests_text = "\n".join([f"- Test: {t}, Subgroup: {s}" for t, s in unknown_tests])
     prompt = f"Categories: Biochemistry, Clinical, Hematology, Immunology. Assign each test. Return CSV: TestName,Subgroup,Category\n{tests_text}"
     try:
-        client = config.get_openai_client()
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0
+        client = config.get_gemini_client()
+        resp = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=config.GenerateContentConfig(temperature=0),
         )
         mapping = {}
-        response_text = resp.choices[0].message.content or ""
+        response_text = resp.text or ""
         for line in response_text.strip().splitlines():
             parts = [p.strip() for p in line.split(",")]
             if len(parts) == 3:
                 mapping[(parts[0], parts[1])] = parts[2]
         return mapping
-    except config.APIError:
+    except config.GeminiAPIError:
         return {}
 
 
 def generate_ai_insights(summary):
-    client = config.get_openai_client()
+    client = config.get_gemini_client()
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are an operational reporting assistant for a pathology laboratory. "
-                        "Describe workload patterns and changes from the supplied aggregate counts. "
-                        "Do not infer diagnoses, clinical outcomes, or causes. Use concise bullets and "
-                        "mention when a comparison is limited by the available dates."
-                    )
-                },
-                {
-                    "role": "user",
-                    "content": json.dumps(summary, ensure_ascii=True)
-                }
-            ],
-            temperature=0.2,
-            max_tokens=350
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=json.dumps(summary, ensure_ascii=True),
+            config=config.GenerateContentConfig(
+                system_instruction=(
+                    "You are an operational reporting assistant for a pathology laboratory. "
+                    "Describe workload patterns and changes from the supplied aggregate counts. "
+                    "Do not infer diagnoses, clinical outcomes, or causes. Use concise bullets and "
+                    "mention when a comparison is limited by the available dates."
+                ),
+                temperature=0.2,
+                max_output_tokens=350,
+            ),
         )
-    except config.APIError as exc:
+    except config.GeminiAPIError as exc:
         raise RuntimeError(
-            f"OpenAI could not generate insights ({type(exc).__name__}). Check API access and try again."
+            f"Gemini could not generate insights ({type(exc).__name__}). Check API access and try again."
         ) from exc
 
-    insight_text = response.choices[0].message.content
+    insight_text = response.text
     if not insight_text or not insight_text.strip():
-        raise RuntimeError("OpenAI returned an empty insight response.")
+        raise RuntimeError("Gemini returned an empty insight response.")
     return insight_text.strip()
 
 

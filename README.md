@@ -16,13 +16,13 @@ Install dependencies first if needed:
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-## Enable AI insights
+## Enable Gemini AI features
 
-AI insight generation uses OpenAI and requires `OPENAI_API_KEY` to be set in the same environment that starts Streamlit. For a temporary PowerShell session:
+AI insights and automatic categorization use Gemini and require a `GEMINI_API_KEY` from Google AI Studio. Set it in the same environment that starts Streamlit. For a temporary PowerShell session:
 
 ```powershell
-$env:OPENAI_API_KEY = "set-your-key-here"
+$env:GEMINI_API_KEY = "set-your-key-here"
 .\.venv\Scripts\python.exe -m streamlit run excel_processor.py
 ```
 
-Keep the key private; do not commit it to the repository. AI insights are generated only when requested and receive aggregate test counts, not patient-level rows.
+Keep the key private; do not commit it to the repository. AI insights are generated only when requested and receive aggregate test counts, not patient-level rows. Gemini API free-tier availability and usage limits depend on Google's current terms, model, and region; free usage is not guaranteed or unlimited.

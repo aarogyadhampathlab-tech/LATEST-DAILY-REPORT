@@ -2,27 +2,30 @@ import os
 from datetime import datetime, timedelta
 
 try:
-    from openai import APIError, OpenAI
-    OPENAI_AVAILABLE = True
+    from google import genai
+    from google.genai.errors import APIError as GeminiAPIError
+    from google.genai.types import GenerateContentConfig
+    GEMINI_AVAILABLE = True
 except ImportError:
-    APIError = None
-    OpenAI = None
-    OPENAI_AVAILABLE = False
+    genai = None
+    GeminiAPIError = None
+    GenerateContentConfig = None
+    GEMINI_AVAILABLE = False
 
 
-def get_openai_client():
-    if OpenAI is None:
-        raise RuntimeError("Install the OpenAI dependency from requirements.txt to enable AI insights.")
+def get_gemini_client():
+    if genai is None:
+        raise RuntimeError("Install the Gemini dependency from requirements.txt to enable AI features.")
 
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        raise RuntimeError("Set OPENAI_API_KEY in the environment used to start Streamlit.")
+        raise RuntimeError("Set GEMINI_API_KEY in the environment used to start Streamlit.")
 
-    return OpenAI(api_key=api_key)
+    return genai.Client(api_key=api_key)
 
 
-def is_openai_configured():
-    return OpenAI is not None and bool(os.getenv("OPENAI_API_KEY"))
+def is_gemini_configured():
+    return GEMINI_AVAILABLE and bool(os.getenv("GEMINI_API_KEY"))
 
 
 def default_dates():
